@@ -4,9 +4,9 @@ A RAG application for searching technical documentation and generating answers b
 
 Database manuals and operational runbooks often contain related information across several pages or documents. This project brings those passages together, lets users inspect their relevance, and provides citations alongside generated answers. Search works independently of the language model.
 
-![Knowledge workspace with a cited answer and ranked evidence](docs/screenshots/citations-fixture.png)
+![PostgreSQL savepoint answer with citations and ranked evidence](docs/screenshots/05-grounded-answer.png)
 
-*Interface demonstration using authored fixture data. Live integration results are recorded in [EVALUATION_RESULTS.md](EVALUATION_RESULTS.md).*
+*Local application run: PostgreSQL savepoint question, two source citations and a reported response time of 1,512 ms.*
 
 ## Features
 
@@ -71,25 +71,31 @@ Additional trade-offs are documented in [architecture decisions](docs/ARCHITECTU
 
 ## Application walkthrough
 
-The following screenshots use authored browser fixtures to demonstrate the interface, not live model output.
+Screenshots below show local application runs unless explicitly marked as a fixture. Reported response times are individual observations, not benchmarks.
 
 ### Document library and ingestion
 
 ![Document library after indexing a runbook](docs/screenshots/ingestion-fixture.png)
 
-Upload a document, track indexing progress, inspect page and chunk counts, and select the documents to search.
+Upload a document, track indexing progress, inspect page and chunk counts, and select the documents to search. This screenshot uses an authored browser fixture.
+
+### Semantic retrieval
+
+![SQLite page-size query with ranked passages](docs/screenshots/03-semantic-search.png)
+
+The top-ranked passage has a cosine similarity of 0.834; the interface reports 272 ms for this search.
 
 ### Hybrid retrieval
 
-![Hybrid retrieval results with similarity and fusion scores](docs/screenshots/retrieval-fixture.png)
+![SQLite byte-offset query with hybrid ranking](docs/screenshots/04-hybrid-search.png)
 
-Inspect ranked passages, source references and scores. Semantic similarity and hybrid fusion scores are reported separately.
+The top-ranked passage discusses the change counter at offset 24. The interface displays cosine similarity and reciprocal rank fusion scores separately.
 
-### Privacy and evidence fallback
+### Insufficient evidence
 
-![Consent gate blocks generation while retaining evidence](docs/screenshots/consent-fixture.png)
+![Unrelated question with no supporting evidence](docs/screenshots/07-guardrails.png)
 
-When external generation is not authorized, the application still returns retrieved evidence.
+The application abstains when the indexed documents cannot support an answer. Document and question consent also gate external generation.
 
 ## Evaluation
 
@@ -186,6 +192,8 @@ Interactive Swagger documentation is available at [localhost:8000/docs](http://1
 | POST | `/api/v1/search` | Ranked evidence |
 | POST | `/api/v1/answer` | Cited answer generation |
 
+![Swagger documentation for the FastAPI endpoints](docs/screenshots/08-api-documentation.png)
+
 See the [API and integration registry](docs/API_AND_INTEGRATION_REGISTRY.md) for details.
 
 ## Repository structure
@@ -214,12 +222,15 @@ This is a local, single-user development preview, intended for trusted loopback 
 
 See [known limitations](KNOWN_LIMITATIONS.md) and [project status](PROJECT_STATUS.md).
 
-## Future work
+## Development roadmap
 
-- Bulk ingestion of larger PDFs, folders and structured datasets, with named collections and resumable jobs.
-- Retrieval evaluation at 1,000–10,000 vectors, including ranking quality, latency and resource usage.
-- Better evidence selection, multi-part coverage and query history.
-- Read-only SQL investigation tools and stateful agent orchestration with LangGraph.
+| Stage | Scope | Status |
+|---|---|---|
+| V1 — Document intelligence | Document ingestion, semantic and hybrid retrieval, cited generation and privacy controls | Published development preview |
+| V1 — Scalability extension (M3.2) | Bulk ingestion of larger PDFs, folders and CSV/JSON/JSONL datasets; named collections, resumable jobs and retrieval benchmarks at 1,000–10,000 vectors | Planned |
+| V2 — Agentic database investigation | Read-only SQL tools, tool calling, LangGraph orchestration, investigation state and multi-step evidence gathering | Planned |
+
+Further improvements to evidence selection, multi-part answer coverage and query history are also planned.
 
 The [scalability roadmap](docs/SCALABILITY_ROADMAP.md) describes the planned progression.
 
