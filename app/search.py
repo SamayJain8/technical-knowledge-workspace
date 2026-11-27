@@ -1,4 +1,4 @@
-"""Exact cosine search over compatible, attributed Oracle chunks."""
+"""Semantic and hybrid retrieval using Oracle vector search and rank fusion."""
 
 import math
 import re
@@ -100,7 +100,7 @@ def search(connection: oracledb.Connection, model: MiniLM, query: str,
                            for match, weight in zip(matches, weights, strict=True))
         binds["term_min"] = min(2, sum(weights))
         cursor.execute(projection + " AND ".join(scope) + f" AND ({score}) >= :term_min"
-                       f" ORDER BY ({score}) DESC, distance, c.chunk_id FETCH FIRST :top_k ROWS ONLY",
+                       f" ORDER BY ({score}) DESC, distance, c.chunk_id FETCH EXACT FIRST :top_k ROWS ONLY",
                        binds, fetch_lobs=False)
         lexical = [hit for hit in hits(cursor) if hit.similarity_score >= threshold]
     combined = {}
