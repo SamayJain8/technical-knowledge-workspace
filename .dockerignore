@@ -1,0 +1,16 @@
+**
+!Dockerfile
+!requirements.txt
+!app/
+!app/**
+!corpus/
+!corpus/database_operations.jsonl
+!sql/
+!sql/001_retrieval.sql
+!sql/002_library.sql
+**/__pycache__/
+**/*.pyc
+**/.env*
+**/*wallet*
+**/*.pem
+**/*.key

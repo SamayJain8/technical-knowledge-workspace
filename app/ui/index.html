@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Technical Knowledge Workspace</title>
+  <link rel="stylesheet" href="/assets/demo.css">
+  <script src="/assets/demo.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-icon" aria-hidden="true">⌘</span><span>Technical Knowledge Workspace</span></div>
+    <div class="top-actions"><span id="health" role="status">Checking readiness…</span><a href="/docs">API docs ↗</a></div>
+  </header>
+  <main class="workspace">
+    <section class="panel library" aria-labelledby="library-title">
+      <div class="panel-heading"><h2 id="library-title">Document library</h2><span id="scope" class="tag">All documents</span></div>
+      <p id="library-stats" class="meta" role="status">Loading library…</p>
+      <form id="upload">
+        <label class="upload-area" for="files"><span aria-hidden="true">＋</span><span><strong>Add documents</strong><small>Browse or drop PDF, TXT, Markdown</small></span></label>
+        <input type="file" id="files" accept=".pdf,.txt,.md" required multiple>
+        <div class="upload-actions"><button type="submit" class="secondary" disabled>Index files</button><small id="file-selection" role="status"></small></div>
+      </form>
+      <p id="upload-status" class="notice" role="status"></p>
+      <label class="library-filter" for="library-filter">Find a document</label>
+      <input id="library-filter" type="search" placeholder="Filter by title">
+      <div id="documents"></div>
+    </section>
+    <section class="panel query" aria-labelledby="workspace-title">
+      <div class="query-intro">
+        <h1 id="workspace-title">Explore your knowledge</h1>
+        <p>Ask a question, then inspect the passages behind the answer.</p>
+      </div>
+      <form id="ask">
+        <div class="composer">
+        <label class="visually-hidden" for="query">Question</label>
+        <textarea id="query" required maxlength="2048" placeholder="How can I undo part of a transaction?"></textarea>
+        <div class="settings">
+          <label>Retrieval <select id="strategy"><option value="semantic">Semantic</option><option value="hybrid">Hybrid</option></select></label>
+          <label>Document type <select id="kind"><option value="">All types</option><option value="pdf">PDF</option><option value="txt">TXT</option><option value="md">Markdown</option><option value="seed">Bundled</option></select></label>
+        </div>
+        <div class="actions">
+          <button type="submit" value="search" class="primary">Search evidence</button>
+          <button type="submit" value="extractive" class="secondary">Cited extracts</button>
+          <button type="submit" value="synthesis" class="secondary">Synthesize answer</button>
+          <button type="button" id="cancel" class="quiet" disabled>Cancel</button>
+        </div>
+        </div>
+        <label class="permission"><input type="checkbox" id="public"><span>Share this public question with Gemini<small>Only approved public excerpts are sent. Google may use free-tier inputs and outputs to improve its services.</small></span></label>
+      </form>
+      <p id="status" class="notice" role="status"></p>
+      <section id="response" aria-label="Answer"></section>
+    </section>
+    <aside class="panel evidence" aria-labelledby="evidence-title">
+      <div class="panel-heading"><h2 id="evidence-title">Ranked evidence</h2><span id="evidence-count" class="tag">0 results</span></div>
+      <p class="meta">Compare retrieved excerpts and answer citations.</p>
+      <div id="citations"></div>
+      <div id="evidence"><p class="empty">Run a search to see ranked source excerpts here.</p></div>
+    </aside>
+  </main>
+</body>
+</html>
