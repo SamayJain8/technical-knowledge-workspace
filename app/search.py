@@ -69,7 +69,7 @@ def search(connection: oracledb.Connection, model: MiniLM, query: str,
 
     with connection.cursor() as cursor:
         cursor.execute(projection + " AND ".join(scope) +
-                       " ORDER BY distance, c.chunk_id FETCH EXACT FIRST :top_k ROWS ONLY",
+                       " ORDER BY VECTOR_DISTANCE(c.embedding, :vector, COSINE) FETCH APPROX FIRST :top_k ROWS ONLY",
                        binds, fetch_lobs=False)
         dense = [hit for hit in hits(cursor) if hit.similarity_score >= threshold]
         if strategy != "hybrid":
