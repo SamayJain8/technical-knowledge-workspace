@@ -1,97 +1,143 @@
 # Technical Knowledge Workspace
 
-**Development preview · Local, single-user RAG application**
+A RAG application for searching technical documentation and generating answers backed by source excerpts. Built with Python, FastAPI, Oracle AI Vector Search, local MiniLM embeddings and Gemini.
 
-Database manuals often put an answer across several pages or documents. This
-workspace indexes technical material, retrieves relevant excerpts, and shows
-the source beside the answer so you can check it. It runs MiniLM locally for
-embeddings, stores and ranks vectors in Oracle, and optionally uses Gemini
-for cited answers.
+Database manuals and operational runbooks often contain related information across several pages or documents. This project brings those passages together, lets users inspect their relevance, and provides citations alongside generated answers. Search works independently of the language model.
 
-![Three-panel workspace with a document library, cited answer, and ranked evidence](docs/screenshots/workspace-fixture.png)
+![Knowledge workspace with a cited answer and ranked evidence](docs/screenshots/citations-fixture.png)
 
-*Chrome screenshot using project-authored fixture responses. It illustrates
-the interface with no private documents or live provider traffic.*
+*Interface demonstration using authored fixture data. Live integration results are recorded in [EVALUATION_RESULTS.md](EVALUATION_RESULTS.md).*
 
-### Demonstration gallery
+## Features
 
-All screenshots use authored local fixtures. Live Oracle, MiniLM and
-Gemini verification is reported separately in the [evaluation record](EVALUATION_RESULTS.md).
-
-| Document ingestion | Ranked retrieval |
-|---|---|
-| ![An indexed runbook with document metadata in the library](docs/screenshots/ingestion-fixture.png) | ![Hybrid results with ranked excerpts and cosine scores](docs/screenshots/retrieval-fixture.png) |
-| The upload job reports indexing completion and refreshes the document library. | Hybrid search exposes rank, cosine similarity, source links, and expandable text. |
-
-| Cited synthesis | Privacy gate |
-|---|---|
-| ![Answer with citation chips and two source excerpts](docs/screenshots/citations-fixture.png) | ![Question consent is missing and evidence is still visible](docs/screenshots/consent-fixture.png) |
-| Answer claims link to quotations from two fixture sources. | With question consent off, generation is blocked and retrieved evidence remains visible. |
-
-## What works
-
-- Upload PDF with selectable text, TXT, or Markdown. Track ingestion, detect
-  duplicate content, filter the document library, and select search scope.
-- Compare exact semantic cosine search with hybrid lexical and semantic
-  ranking. Inspect ranked excerpts, cosine scores, provenance, and PDF pages.
-- Request cited extracts or synthesis. The app verifies chunk IDs and quotes,
-  reports unanswered parts when supplied, and shows retrieved evidence when
-  generation is blocked or fails.
-- External processing requires eligible public evidence and explicit question
-  approval. Oracle retrieval works without Gemini.
-- Inspect health and readiness, query the API in Swagger, and trace sanitized
-  request IDs. Concurrency, parsing, upload size, request duration, and model
-  inputs are bounded.
+- **Document ingestion:** PDF with selectable text, TXT and Markdown; background indexing, duplicate detection, document metadata and page-level references.
+- **Retrieval:** exact cosine search over 384-dimensional embeddings, hybrid lexical and semantic ranking, document filters and configurable top-K results.
+- **Answer generation:** extractive and synthesis modes, source citations, explicit unanswered parts and evidence-only fallback when generation fails or is blocked.
+- **Privacy:** document-level sharing eligibility and per-question consent before excerpts or questions are sent to Gemini.
+- **Backend reliability:** Oracle connection pooling, bounded model concurrency, request deadlines, rate limiting, input validation, health endpoints and sanitized request IDs.
 
 ## Architecture
 
+### Document ingestion
+
 ```mermaid
 flowchart LR
-    UI["Browser and FastAPI"] -->|"PDF, TXT, Markdown"| P["Validate, extract, chunk"]
-    P --> E["Local MiniLM, 384 dimensions"]
-    E -->|"Persist document and vectors"| O[("Oracle AI Database")]
-    UI -->|"Question and filters"| R["Semantic or hybrid retrieval"]
-    R --> E
-    R -->|"Query vector and bound filters"| O
-    O -->|"Ranked evidence"| R
-    R -->|"Evidence only"| UI
-    R --> C["Check source and question consent"]
-    C -->|"Eligible excerpts only"| G["Gemini structured output"]
-    G --> V["Validate citations"]
-    V --> UI
+    A["PDF / TXT / Markdown"] --> B["Validate and extract"]
+    B --> C["Token-aware chunking"]
+    C --> D["MiniLM on CPU"]
+    D --> E[("Oracle AI Database")]
+    E --> F["Document library"]
 ```
 
-**Stack:** Python 3.11, FastAPI, Uvicorn, HTML/CSS/JavaScript, Oracle AI
-Database and python-oracledb, Sentence Transformers and pinned
-`all-MiniLM-L6-v2`, Gemini via the Google Gen AI SDK, pypdf, and pytest.
+Text is split into overlapping token windows while preserving document provenance and PDF page metadata. MiniLM produces normalized 384-dimensional embeddings, stored alongside the text and metadata in Oracle's native VECTOR columns.
 
-| Path | Responsibility |
+### Retrieval and answer generation
+
+```mermaid
+flowchart TD
+    Q["Question and filters"] --> E["Local query embedding"]
+    E --> R["Semantic or hybrid search"]
+    R <-->|"Vector distance and lexical matching"| O[("Oracle AI Database")]
+    R --> H["Ranked evidence"]
+    H --> M{"Answer requested?"}
+    M -->|No| S["Return evidence"]
+    M -->|Yes| C{"Source and question consent"}
+    C -->|Denied| S
+    C -->|Approved| G["Gemini structured response"]
+    G --> V["Validate source IDs and quotations"]
+    V -->|Valid| A["Cited answer"]
+    V -->|Failure or abstention| S
+    G -->|Provider failure| S
+```
+
+The browser communicates with FastAPI. Retrieval, context selection and provider integration are implemented directly in Python rather than delegated to a RAG orchestration framework.
+
+For more detail, see the [high-level design](docs/ARCHITECTURE_HLD.md), [low-level design](docs/ARCHITECTURE_LLD.md) and [system design notes](docs/SYSTEM_DESIGN.md).
+
+## Engineering decisions
+
+| Decision | Rationale |
 |---|---|
-| `app/ui/` | Browser workspace |
-| `app/ingest.py`, `app/library.py`, `app/corpus.py` | Seed and uploaded-document ingestion |
-| `app/embeddings.py`, `app/search.py` | CPU embeddings and Oracle ranking |
-| `app/answer.py`, `app/gemini.py` | Evidence selection, provider adapter, and citation validation |
-| `sql/`, `corpus/` | Schema migrations and attributed, project-authored seed summaries |
-| `tests/`, `evaluation/`, `docs/` | Regression tests, evaluation probes, and technical documentation |
+| Local MiniLM embeddings | CPU inference avoids an external embedding service and its per-request cost. |
+| Native Oracle vectors | Keep text, document metadata and embeddings together, with SQL-based filtering. |
+| Exact cosine search | Establish a measurable retrieval baseline before introducing approximate vector indexes. |
+| Hybrid retrieval | Reciprocal rank fusion combines semantic ranking with lexical matches for identifiers, numbers and technical terms. |
+| Direct Python implementation | Keep retrieval, context budgeting, citation checks and provider failure handling explicit. |
+| Bounded concurrency | Limit resource contention between interactive retrieval and document ingestion. |
+| Citation checks | Reject unknown source IDs and quotations that do not match supplied evidence. |
+| Explicit sharing consent | Keep retrieval usable without sending document excerpts to the external generation provider. |
 
-## Run locally
+Additional trade-offs are documented in [architecture decisions](docs/ARCHITECTURE_DECISIONS.md).
 
-Use Windows PowerShell, Python 3.11, and an existing vector-capable Oracle
-database. Use a dedicated schema and private wallet or TLS configuration.
-The app provisions no cloud resources.
+## Application walkthrough
+
+The following screenshots use authored browser fixtures to demonstrate the interface, not live model output.
+
+### Document library and ingestion
+
+![Document library after indexing a runbook](docs/screenshots/ingestion-fixture.png)
+
+Upload a document, track indexing progress, inspect page and chunk counts, and select the documents to search.
+
+### Hybrid retrieval
+
+![Hybrid retrieval results with similarity and fusion scores](docs/screenshots/retrieval-fixture.png)
+
+Inspect ranked passages, source references and scores. Semantic similarity and hybrid fusion scores are reported separately.
+
+### Privacy and evidence fallback
+
+![Consent gate blocks generation while retaining evidence](docs/screenshots/consent-fixture.png)
+
+When external generation is not authorized, the application still returns retrieved evidence.
+
+## Evaluation
+
+| Check | Recorded result |
+|---|---|
+| Windows regression suite | 67 passed, 2 skipped |
+| Seed retrieval evaluation | 8/8 expected sources ranked first |
+| Seed Recall@3 and MRR@3 | 1.00 on eight positive questions |
+| Unrelated seed questions | 4/4 returned no evidence |
+| Warm retrieval latency | 81.46 ms median over 12 sequential seed requests |
+| Cross-document synthesis | Retrieved and cited both requested sources in a two-document query |
+
+The regression run used real Oracle and cached MiniLM; persistent upload and live Gemini tests were opt-in skips. Separate live Gemini runs are documented in the evaluation record. The latency and retrieval figures come from a small historical seed evaluation, not a large-scale benchmark or load test.
+
+See [evaluation results](EVALUATION_RESULTS.md) for test flags, methodology, capacity probes, hybrid comparisons and observed failure cases.
+
+## Technology stack
+
+| Layer | Technology |
+|---|---|
+| API | Python 3.11, FastAPI, Uvicorn |
+| Database | Oracle AI Database, python-oracledb |
+| Embeddings | Sentence Transformers, all-MiniLM-L6-v2, PyTorch CPU |
+| Generation | Gemini, Google Gen AI SDK |
+| Document processing | pypdf, token-aware text chunking |
+| Frontend | HTML, CSS, JavaScript |
+| Testing and packaging | pytest, Dockerfile, Docker Compose (runtime verification pending) |
+
+## Getting started
+
+### 1. Install dependencies
+
+Use Python 3.11 on Windows and an existing vector-capable Oracle database. The application does not provision cloud resources.
 
 ```powershell
+git clone https://github.com/SamayJain8/technical-knowledge-workspace.git
+cd technical-knowledge-workspace
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 .venv/Scripts/python -m app.smoke model --download
 ```
 
-Set `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_DSN` and wallet settings
-locally. Follow the [Oracle setup guide](docs/ORACLE_SETUP.md) for separate
-owner, reader and writer credentials. On a **new empty project schema**,
-run the following as its owner. Oracle DDL commits, so inspect any existing
-schema before applying it.
+### 2. Configure Oracle
+
+Set `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_DSN` and the applicable wallet or TLS settings in your local `.env`. Use a dedicated schema and keep credentials and wallets outside version control.
+
+Follow the [Oracle setup guide](docs/ORACLE_SETUP.md) for owner, reader and writer configuration. On a **new empty project schema**, run as its owner:
 
 ```powershell
 .venv/Scripts/python -m app.smoke oracle --init-schema
@@ -99,76 +145,86 @@ schema before applying it.
 .venv/Scripts/python -m app.ingest
 ```
 
-Switch to the local runtime credentials described in the setup guide, then
-start one worker and open [the workspace](http://127.0.0.1:8000/).
+Oracle DDL commits automatically; inspect an existing schema before applying migrations. Switch to the runtime credentials described in the setup guide before starting the application.
+
+### 3. Configure generation (optional)
+
+Set `LLM_PROVIDER`, `LLM_MODEL` and `GEMINI_API_KEY` in `.env` to enable Gemini. Evidence-only search does not require a Gemini key.
+
+Uploaded text and vectors persist in Oracle. Approved excerpts and the question may be sent to Gemini for token counting and generation. Use public material for external generation and review the [provider data terms](https://ai.google.dev/gemini-api/terms).
+
+### 4. Start the application
 
 ```powershell
 .venv/Scripts/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --limit-concurrency 8 --no-access-log
 ```
 
-Ask “How can I undo part of a transaction?” and choose **Search evidence**.
-For a screenshot, use only the bundled corpus or an authored public fixture,
-hide browser chrome and unrelated identifiers, and label mocked responses
-explicitly. A narrow viewport stacks the three panels.
+Open [localhost:8000](http://127.0.0.1:8000/) and try searching the bundled corpus with:
 
-Gemini is optional. Configure `LLM_PROVIDER`, `LLM_MODEL`, and
-`GEMINI_API_KEY` locally only if you plan to use external generation.
-Approve only public excerpts and public test questions. Uploaded text and
-vectors persist in Oracle Cloud. Gemini receives eligible excerpts and the
-question for token counting and generation. See the
-[provider data terms](https://ai.google.dev/gemini-api/terms).
+> How can I undo part of a transaction?
 
-## API
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /health/live`, `GET /health/ready` | Process and Oracle/MiniLM readiness |
-| `GET /api/v1/documents`, `POST /api/v1/documents?name=…` | List indexed documents or accept raw upload bytes |
-| `GET /api/v1/ingestion/{job_id}` | Read upload progress |
-| `PATCH /api/v1/documents/{id}/eligibility`, `DELETE /api/v1/documents/{id}` | Manage sharing eligibility or remove an upload |
-| `POST /api/v1/search`, `POST /api/v1/answer` | Retrieve evidence or generate a cited answer |
-
-See [Swagger](http://127.0.0.1:8000/docs) and the
-[integration registry](docs/API_AND_INTEGRATION_REGISTRY.md).
-
-## Verification
+### 5. Run tests
 
 ```powershell
 .venv/Scripts/python -m pytest -q -rs
 ```
 
-Live model, Oracle, persistent upload, and Gemini tests are opt-in. The
-[evaluation record](EVALUATION_RESULTS.md) lists exact flags and distinguishes
-automated runs from independent verification. The migrated Windows stack
-passed **67 tests** with live Oracle and cached MiniLM. Persistent upload and
-live Gemini were the two opt-in skips. The full installed environment returned
-zero matches in a 74-package OSV scan on 2026-11-27. In the historical M3 seed
-evaluation, all eight expected sources ranked first and the four unrelated
-questions abstained. Independent checks also retrieved and cited both
-documents in a two-document synthesis query. The held-out scope is small,
-and individual latencies are observations.
+Live model, Oracle, persistent upload and Gemini tests are opt-in. See the [testing guide](docs/EVALUATION_AND_TESTING.md) and [evaluation record](EVALUATION_RESULTS.md) for configuration and commands.
 
-## Limits and roadmap
+## API
 
-Run this preview on loopback with trusted local access. It has no user or
-tenant isolation. Separate Oracle runtime roles need live sign-off. Final
-Docker runtime verification remains pending. The source preview passed independent review.
-Exact citation validation checks identity and quotation text. Semantic
-support and complete multi-part coverage still require evaluation.
-[Known limitations](KNOWN_LIMITATIONS.md) · [Release status](PROJECT_STATUS.md)
+Interactive Swagger documentation is available at [localhost:8000/docs](http://127.0.0.1:8000/docs) while the application is running.
 
-- **M3.2, postponed:** configurable dataset mapping, named collections,
-  resumable bulk ingestion, and retrieval benchmarks at 1,000–10,000 vectors.
-- **V1 backlog:** remaining improvements to ingestion persistence, history,
-  suggestions, feedback, streaming, caching, and scale testing.
-- **V2, planned:** named read-only SQL investigation tools, LangGraph
-  orchestration, and expanded evaluation and reliability work.
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/health/live`, `/health/ready` | Liveness and Oracle/MiniLM readiness |
+| GET | `/api/v1/documents` | List indexed documents |
+| POST | `/api/v1/documents?name=…` | Upload raw document bytes |
+| GET | `/api/v1/ingestion/{job_id}` | Ingestion progress |
+| PATCH | `/api/v1/documents/{id}/eligibility` | External sharing eligibility |
+| DELETE | `/api/v1/documents/{id}` | Remove an uploaded document |
+| POST | `/api/v1/search` | Ranked evidence |
+| POST | `/api/v1/answer` | Cited answer generation |
 
-[Requirements](docs/REQUIREMENTS.md) · [Implementation roadmap](docs/IMPLEMENTATION_PLAN.md)
-· [Architecture decisions](docs/ARCHITECTURE_DECISIONS.md)
+See the [API and integration registry](docs/API_AND_INTEGRATION_REGISTRY.md) for details.
 
-## Sources and rights
+## Repository structure
 
-The [seed corpus](corpus/README.md) contains attributed project-authored
-summaries. The [pinned MiniLM model card](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/blob/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/README.md)
-describes the Apache-2.0 model. The application is licensed under [MIT](LICENSE).
+| Path | Responsibility |
+|---|---|
+| `app/main.py` | FastAPI routes and request handling |
+| `app/ingest.py`, `app/library.py`, `app/corpus.py` | Seed and uploaded-document ingestion |
+| `app/embeddings.py`, `app/search.py` | Embedding inference and retrieval |
+| `app/oracle.py` | Database connections |
+| `app/answer.py`, `app/gemini.py` | Evidence selection, generation and citation checks |
+| `app/ui/` | Browser interface |
+| `sql/`, `corpus/` | Schema migrations and seed documents |
+| `tests/`, `evaluation/` | Regression tests and evaluation probes |
+| `docs/` | Architecture, setup and engineering documentation |
+
+## Current limitations
+
+This is a local, single-user development preview, intended for trusted loopback access rather than public deployment.
+
+- Uploads are bounded; scanned PDFs requiring OCR are unsupported.
+- Ingestion progress is not durable across restarts.
+- Citation checks verify source identity and quotation accuracy, not full semantic entailment or guaranteed multi-part answer coverage.
+- Dedicated Oracle runtime roles and Linux/Docker runtime execution still require live verification.
+- Multi-user isolation and large-scale performance have not been implemented or established.
+
+See [known limitations](KNOWN_LIMITATIONS.md) and [project status](PROJECT_STATUS.md).
+
+## Future work
+
+- Bulk ingestion of larger PDFs, folders and structured datasets, with named collections and resumable jobs.
+- Retrieval evaluation at 1,000–10,000 vectors, including ranking quality, latency and resource usage.
+- Better evidence selection, multi-part coverage and query history.
+- Read-only SQL investigation tools and stateful agent orchestration with LangGraph.
+
+The [scalability roadmap](docs/SCALABILITY_ROADMAP.md) describes the planned progression.
+
+## Sources and license
+
+The [seed corpus](corpus/README.md) contains attributed, project-authored summaries. The [pinned MiniLM model card](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/blob/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/README.md) describes the Apache-2.0 model.
+
+Application code is licensed under [MIT](LICENSE).
